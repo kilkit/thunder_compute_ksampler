@@ -30,7 +30,7 @@ class ThunderComputeKSampler:
                 "cfg": ("FLOAT", {"default": 8.0, "min": 0.0, "max": 100.0, "step": 0.1}),
                 "sampler_name": (["euler", "euler_ancestral", "heun", "dpm_2", "dpm_2_ancestral", "lms", "dpm_fast", "dpm_adaptive", "dpmpp_2s_ancestral", "dpmpp_sde", "dpmpp_sde_gpu", "dpmpp_2m", "dpmpp_2m_sde", "dpmpp_2m_sde_gpu", "ddim", "uni_pc", "uni_pc_bh2"], {"default": "euler"}),
                 "scheduler": (["normal", "karras", "exponential", "sgm_uniform", "simple", "ddim_uniform"], {"default": "normal"}),
-                "denoise": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01"}),
+                "denoise": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01}),
                 "hrm_endpoint": ("STRING", {"default": "https://your-replit-app.replit.dev/api/hrm/generate-image"}),
             },
             "optional": {

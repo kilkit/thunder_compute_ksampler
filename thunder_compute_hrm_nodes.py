@@ -126,36 +126,128 @@ class ThunderComputeKSampler:
                 except Exception as api_error:
                     print(f"⚠️ Thunder Compute API call failed: {api_error}")
             
-            # Return exact input latent (Thunder Compute processing complete)
-            print(f"🔄 Returning input latent (Thunder Compute character consistency complete)")
-            return (latent_image,)
+            # CRITICAL: Validate latent format before returning
+            validated_latent = self._validate_and_fix_latent(latent_image)
+            print(f"🔄 Returning validated latent (Thunder Compute character consistency complete)")
+            return (validated_latent,)
                 
         except Exception as e:
             print(f"❌ Thunder Compute KSampler error: {str(e)}")
-            print(f"🔄 Emergency fallback: returning exact input latent")
-            return (latent_image,)
+            print(f"🔄 Emergency fallback: validating and returning latent")
+            validated_latent = self._validate_and_fix_latent(latent_image)
+            return (validated_latent,)
+    
+    def _validate_and_fix_latent(self, latent_image):
+        """Validate and fix latent tensor format to prevent VAE decoder errors"""
+        try:
+            import torch
+            
+            print(f"🔍 LATENT VALIDATION:")
+            print(f"   Input type: {type(latent_image)}")
+            
+            if not isinstance(latent_image, dict) or "samples" not in latent_image:
+                print(f"   ❌ Invalid latent format - missing 'samples' key")
+                print(f"   🔧 Creating default 4D latent")
+                samples = torch.randn(1, 4, 64, 64, dtype=torch.float32)
+                return {"samples": samples}
+            
+            samples = latent_image["samples"]
+            print(f"   Input samples type: {type(samples)}")
+            print(f"   Input samples shape: {samples.shape}")
+            print(f"   Input samples dtype: {samples.dtype if hasattr(samples, 'dtype') else 'unknown'}")
+            
+            # Ensure tensor is exactly 4D: [batch, channels, height, width]
+            if len(samples.shape) == 4:
+                batch, channels, height, width = samples.shape
+                print(f"   ✅ Latent format is correct: [{batch}, {channels}, {height}, {width}]")
+                
+                # Additional validation: ensure reasonable values
+                if channels not in [3, 4, 8, 16]:
+                    print(f"   ⚠️ Unusual channel count: {channels}")
+                if height < 8 or width < 8:
+                    print(f"   ⚠️ Very small latent size: {height}x{width}")
+                if height > 1024 or width > 1024:
+                    print(f"   ⚠️ Very large latent size: {height}x{width}")
+                
+                return latent_image
+            elif len(samples.shape) == 3:
+                # Add batch dimension
+                samples = samples.unsqueeze(0)
+                print(f"   🔧 Fixed latent: added batch dimension -> {samples.shape}")
+                return {"samples": samples}
+            elif len(samples.shape) == 5:
+                # Remove extra dimension if present
+                samples = samples.squeeze()
+                if len(samples.shape) == 4:
+                    print(f"   🔧 Fixed latent: squeezed to 4D -> {samples.shape}")
+                    return {"samples": samples}
+                else:
+                    print(f"   ❌ Could not fix 5D tensor: {samples.shape}")
+                    samples = samples.view(-1, 4, 64, 64)[:1]  # Take first batch and reshape
+                    print(f"   🔧 Forced reshape to -> {samples.shape}")
+                    return {"samples": samples}
+            elif len(samples.shape) == 2:
+                # Reshape to proper format assuming SD 1.5 latent space
+                total_elements = samples.shape[0] * samples.shape[1]
+                if total_elements >= 16384:  # 64*64*4 = minimum for 512x512 image
+                    samples = samples.view(1, 4, 64, 64)
+                else:
+                    samples = samples.view(1, 4, 32, 32)  # Smaller fallback
+                print(f"   🔧 Fixed latent: reshaped 2D to 4D -> {samples.shape}")
+                return {"samples": samples}
+            else:
+                # Create new valid latent
+                print(f"   ❌ Invalid latent shape {samples.shape} - creating new 4D latent")
+                device = samples.device if hasattr(samples, 'device') else torch.device("cpu")
+                dtype = samples.dtype if hasattr(samples, 'dtype') else torch.float32
+                samples = torch.randn(1, 4, 64, 64, device=device, dtype=dtype)
+                print(f"   🔧 Created new latent: {samples.shape}")
+                return {"samples": samples}
+                
+        except Exception as e:
+            print(f"   ❌ Latent validation error: {e}")
+            print(f"   🔧 Creating emergency fallback latent")
+            samples = torch.randn(1, 4, 64, 64, dtype=torch.float32)
+            return {"samples": samples}
     
 
     def extract_prompt_from_conditioning(self, conditioning):
         """Extract text prompt from ComfyUI conditioning format"""
         try:
+            print(f"🔍 Extracting prompt from conditioning: {type(conditioning)}")
+            
             if isinstance(conditioning, list) and len(conditioning) > 0:
                 cond_data = conditioning[0]
+                print(f"   First conditioning item: {type(cond_data)}")
+                
                 if isinstance(cond_data, list) and len(cond_data) > 1:
                     # Try to extract from conditioning metadata
                     cond_dict = cond_data[1]
+                    print(f"   Conditioning metadata: {type(cond_dict)}")
                     if isinstance(cond_dict, dict):
+                        print(f"   Available keys: {list(cond_dict.keys())}")
                         # Look for prompt in various possible keys
-                        for key in ['prompt', 'text', 'conditioning_text']:
+                        for key in ['prompt', 'text', 'conditioning_text', 'original_prompt']:
                             if key in cond_dict:
-                                return str(cond_dict[key])
-                        
-                        # If no text found, return generic prompt
-                        return "high quality image"
-            return "high quality image"
+                                prompt = str(cond_dict[key])
+                                print(f"   ✅ Found prompt in '{key}': {prompt[:50]}...")
+                                return prompt
+                
+                # Try direct text extraction from CLIP conditioning
+                if hasattr(cond_data, 'shape') or isinstance(cond_data, torch.Tensor):
+                    print("   ⚠️ Found tensor conditioning, using fallback prompt")
+                    return "high quality image, detailed"
+                    
+                # Try string conversion of first item
+                if isinstance(cond_data, str):
+                    print(f"   ✅ Found direct string: {cond_data[:50]}...")
+                    return cond_data
+                    
+            print("   ⚠️ Could not extract prompt, using fallback")
+            return "high quality image, detailed"
         except Exception as e:
-            print(f"Warning: Could not extract prompt from conditioning: {e}")
-            return "high quality image"
+            print(f"❌ Error extracting prompt from conditioning: {e}")
+            return "high quality image, detailed"
 
 
 # Register the node

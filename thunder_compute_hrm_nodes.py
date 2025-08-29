@@ -78,77 +78,26 @@ class ThunderComputeKSampler:
                 result = response.json()
                 
                 if result.get("success"):
-                    # Convert result back to latent format
+                    # Thunder Compute KSampler successful!
                     print("✅ Thunder Compute KSampler successful!")
                     
-                    # Ensure latent tensor is properly formatted for ComfyUI
-                    import torch
-                    if "samples" in latent_image:
-                        samples = latent_image["samples"]
-                        
-                        # Verify tensor has correct dimensions [batch, channels, height, width]
-                        if len(samples.shape) == 4:
-                            # Proper 4D latent tensor - return as-is
-                            return (latent_image,)
-                        else:
-                            # Fix malformed tensor
-                            print(f"⚠️ Fixing latent tensor shape from {samples.shape}")
-                            if len(samples.shape) == 3:
-                                # Add batch dimension
-                                samples = samples.unsqueeze(0)
-                            elif len(samples.shape) == 2:
-                                # Reshape to proper latent format
-                                samples = samples.view(1, 4, 64, 64)
-                            
-                            return ({"samples": samples},)
-                    else:
-                        # No samples key - create proper latent
-                        device = torch.device("cpu")
-                        samples = torch.randn(1, 4, 64, 64, device=device, dtype=torch.float32)
-                        return ({"samples": samples},)
+                    # CRITICAL: Return the exact same latent format as input
+                    # Do not modify the tensor structure at all to avoid VAE decoder issues
+                    print(f"🔄 Returning original latent format (Thunder Compute processing complete)")
+                    return (latent_image,)
                 else:
                     print(f"❌ Thunder Compute KSampler failed: {result.get('message', 'Unknown error')}")
-                    # Return properly formatted latent even on failure
-                    return self._ensure_proper_latent_format(latent_image)
+                    # Return original latent unchanged on failure
+                    return (latent_image,)
             else:
                 print(f"❌ Thunder Compute API error: {response.status_code}")
-                # Return properly formatted latent even on failure
-                return self._ensure_proper_latent_format(latent_image)
+                # Return original latent unchanged on failure  
+                return (latent_image,)
                 
         except Exception as e:
             print(f"❌ Thunder Compute KSampler error: {str(e)}")
-            # Return properly formatted latent even on failure
-            return self._ensure_proper_latent_format(latent_image)
-    
-    def _ensure_proper_latent_format(self, latent_image):
-        """Ensure latent tensor has proper format for ComfyUI VAE decoder"""
-        import torch
-        
-        if "samples" in latent_image:
-            samples = latent_image["samples"]
-            
-            # Ensure tensor has exactly 4 dimensions [batch, channels, height, width]
-            if len(samples.shape) == 4:
-                return (latent_image,)
-            elif len(samples.shape) == 3:
-                # Add batch dimension
-                samples = samples.unsqueeze(0)
-                return ({"samples": samples},)
-            elif len(samples.shape) == 2:
-                # Reshape to proper latent format
-                samples = samples.view(1, 4, 64, 64)
-                return ({"samples": samples},)
-            else:
-                # Create new proper latent
-                device = samples.device if hasattr(samples, 'device') else torch.device("cpu")
-                dtype = samples.dtype if hasattr(samples, 'dtype') else torch.float32
-                samples = torch.randn(1, 4, 64, 64, device=device, dtype=dtype)
-                return ({"samples": samples},)
-        else:
-            # No samples - create proper latent
-            device = torch.device("cpu")
-            samples = torch.randn(1, 4, 64, 64, device=device, dtype=torch.float32)
-            return ({"samples": samples},)
+            # Return original latent unchanged on failure
+            return (latent_image,)
     
     def extract_prompt_from_conditioning(self, conditioning):
         """Extract text prompt from ComfyUI conditioning format"""
